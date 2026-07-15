@@ -1,2 +1,19 @@
 __pycache__/
 *.pyc
+.env
+.env.local
+*.secret
+venv/
+.venv/
+env/
+ENV/
+Thumbs.db
+Ehthumbs.db
+Desktop.ini
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
