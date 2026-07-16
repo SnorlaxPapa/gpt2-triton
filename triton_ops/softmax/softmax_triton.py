@@ -10,8 +10,8 @@ torch.cuda.manual_seed_all(42)
 
 @triton.autotune(
     [
-        triton.Config({"num_stages": s}, num_warps=w)
-        for s in [1, 2, 3, 4, 5, 6] for w in [2, 4, 8, 16]
+        triton.Config({}, num_warps=w)
+        for w in [2, 4, 8, 16]
     ],
     key=["n_cols", "n_rows", "BLOCK_SIZE"]
 )
@@ -24,45 +24,39 @@ def softmax_kernel(
   n_rows,
   n_cols,
   BLOCK_SIZE: tl.constexpr,
-  num_stages: tl.constexpr,  
 ):
   """
   we compute the softmax for a row
-  we iterate in the form for each program i, i + num_programs, i + 2 * num_programs and write the output back to HBM
+  our grid is (n_row, 1, 1), so we just find the position of the row and compute
   """
 
-  row_start = tl.program_id(0)
-  row_step = tl.num_programs(0)
+  #process start of row
+  row_index = tl.program_id(0)
+  row_pointer = input_pointer + row_index * input_stride
 
-  #we iterate in the form 1, 11, 21, 31 etc for better indexing
-  for row_index in tl.range(row_start, n_rows, row_step, num_stages=num_stages):
-    #we extract where the row is first 
-    row_pointer = input_pointer + row_index * input_stride
-    col_offsets = tl.arange(0, BLOCK_SIZE)
-    row = row_pointer + col_offsets
+  #capture the row and masks
+  col_offsets = tl.arange(0, BLOCK_SIZE)
+  row = row_pointer + col_offsets
+  mask = col_offsets < n_cols
+  row_values = tl.load(row, mask=mask, other=float("-inf")).to(tl.float32)
 
-    #we initialize a mask where col < n_col to filter out extra columns
-    mask = col_offsets < n_cols
-    row_values = tl.load(row, mask=mask, other=float("-inf")).to(tl.float32) #we set false values to -inf so these dont affect our calculations
-    #after row is loaded, we find normalize the row before exponentiating it
-    row_minus_max = row_values - tl.max(row_values, axis=0)
-    numerator = tl.exp(row_minus_max)
+  #after row is loaded, we normalize the row before exponentiating it
+  row_minus_max = row_values - tl.max(row_values, axis=0)
+  numerator = tl.exp(row_minus_max)
 
-    #we finally softmax the row
-    denominator = tl.sum(numerator, axis=0)
-    softmax_result = numerator/denominator
+  #we find the denominator and softmax
+  denominator = tl.sum(numerator, axis=0)
+  softmax_result = numerator/denominator 
 
-    #then we write back to our output row
-    output_row_pointer = output_pointer + row_index * output_stride
-    output_row = output_row_pointer + col_offsets
-    tl.store(output_row, softmax_result.to(input_pointer.dtype.element_ty), mask=mask)
-
+  output_row_pointer = output_pointer + row_index * output_stride
+  output_row = output_row_pointer + col_offsets
+  tl.store(output_row, softmax_result.to(input_pointer.dtype.element_ty), mask=mask)
 
 
 @triton.autotune(
     [
-        triton.Config({"num_stages": s}, num_warps=w)
-        for s in [1, 2, 3, 4, 5, 6] for w in [2, 4, 8, 16]
+        triton.Config({}, num_warps=w)
+        for w in [2, 4, 8, 16]
     ],
     key=["n_cols", "n_rows", "BLOCK_SIZE"]
 )
@@ -76,7 +70,6 @@ def softmax_bwd(
     n_rows,
     n_cols,
     BLOCK_SIZE: tl.constexpr,
-    num_stages: tl.constexpr,
 ):
   """
   we compute the partial derivative of S wrt to x_i, which influences every value in each softmax output
@@ -86,28 +79,25 @@ def softmax_bwd(
   row_start = tl.program_id(0)
   row_step = tl.num_programs(0)
 
-  #iterate through rows like in forward
-  for row_index in tl.range(row_start, n_rows, row_step, num_stages=num_stages):
-    #set our y pointers and mask
-    y_row_pointer = y_pointer + row_index * y_row_stride
-    col_offset = tl.arange(0, BLOCK_SIZE)
-    mask = col_offset < n_cols
-    y_index = y_row_pointer + col_offset
+  y_row_pointer = y_pointer + row_start * y_row_stride
+  col_offset = tl.arange(0, BLOCK_SIZE)
+  mask = col_offset < n_cols
+  y_index = y_row_pointer + col_offset
 
-    #set our dy pointers and mask
-    dy_row_pointer = dy_pointer + row_index * y_row_stride
-    dy_index = dy_row_pointer + col_offset
+  #set our dy pointers and mask
+  dy_row_pointer = dy_pointer + row_start * y_row_stride
+  dy_index = dy_row_pointer + col_offset
 
-    #load our y and dy
-    dy = tl.load(dy_index, mask=mask, other=0.0).to(tl.float32)
-    y = tl.load(y_index, mask=mask, other=0.0).to(tl.float32) #we set other to 0 as we are running tl.sum(), so we don't want the padded values to affect our division
+  #load our y and dy
+  dy = tl.load(dy_index, mask=mask, other=0.0).to(tl.float32)
+  y = tl.load(y_index, mask=mask, other=0.0).to(tl.float32) #we set other to 0 as we are running tl.sum(), so we don't want the padded values to affect our division
 
-    #calculate our dx
-    dx = y * (dy - tl.sum(y * dy, axis=0))
+  #calculate our dx
+  dx = y * (dy - tl.sum(y * dy, axis=0))
 
-    #calculate our dx pointer
-    dx_arrays = dx_pointer + row_index * x_row_stride + col_offset
-    tl.store(dx_arrays, dx.to(dx_pointer.dtype.element_ty), mask=mask)
+  #calculate our dx pointer
+  dx_arrays = dx_pointer + row_start * x_row_stride + col_offset
+  tl.store(dx_arrays, dx.to(dx_pointer.dtype.element_ty), mask=mask)
 
 
 
@@ -174,3 +164,26 @@ class Softmax(torch.autograd.Function):
     )
 
     return dx
+
+
+def test_softmax():
+  #initialize softmax layers. we don't initialize a softmax instance for triton. rather, we just call the class. this is because its a static method and .apply integrates with torch.autograd
+  x = torch.randn(10, 10, device='cuda', requires_grad=True)
+
+  # forward
+  y_triton = Softmax.apply(x)
+  y_torch = torch.softmax(x, dim=-1)
+  print("Forward match:", torch.allclose(y_triton, y_torch, atol=1e-5))
+
+  # backward
+  dy = torch.randn_like(x)
+  y_triton.backward(dy)
+  grad_triton = x.grad.clone()
+
+  x.grad = None
+  y_torch = torch.softmax(x, dim=-1)
+  y_torch.backward(dy)
+  grad_torch = x.grad.clone()
+  print("Backward match:", torch.allclose(grad_triton, grad_torch, atol=1e-5))
+  print("Max diff:", (grad_triton - grad_torch).abs().max().item())
+

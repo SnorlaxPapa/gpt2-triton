@@ -21,10 +21,11 @@ def naive_softmax(x):
     return ret
 
 
+
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         x_names=["N"],
-        x_vals=[128 * i for i in range(2, 40)],
+        x_vals=[128 * i for i in range(1, 70)], #roughly 1300 to 7800
         line_arg="provider",
         line_vals=["triton", "naive_softmax", "torch"],
         line_names=["Triton", "Naive Softmax", "Torch Softmax"],
@@ -34,20 +35,28 @@ def naive_softmax(x):
         args={'M': 1024}, #the argument that stays constant and the value we provide for it
     )
 )
+def forward_benchmark(M, N, provider):
+    return benchmark(M, N, provider)
 
 
-def benchmark(M, N, provider):
+
+def benchmark(M, N, provider, n_runs=5):
     x = torch.randn(M, N, device=DEVICE, dtype=torch.float32)
     stream = getattr(torch, DEVICE.type).Stream()
     getattr(torch, DEVICE.type).set_stream(stream)
     if provider == 'torch':
-        ms = triton.testing.do_bench(lambda: torch.softmax(x, dim=-1))
+        fn = lambda: torch.softmax(x, dim=-1)
     if provider == 'triton':
-        ms = triton.testing.do_bench(lambda: Softmax.apply(x))
+        fn = lambda: Softmax.apply(x)
     if provider == 'naive_softmax':
-        ms = triton.testing.do_bench(lambda: naive_softmax(x))
+        fn = lambda: naive_softmax(x)
+
+    #we run it a total of five times to minimize variance 
+    total = [triton.testing.do_bench(fn) for _ in range (n_runs)]
+    ms = sum(total)/len(total)
     gbps = lambda ms: 2 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
     return gbps(ms)
 
 
-benchmark.run(show_plots=True, print_data=True, save_path=".")
+forward_benchmark.run(show_plots=False, print_data=True, save_path=".")
+# power_of_2_benchmark.run(show_plots=False, print_data=True, save_path="./two")
