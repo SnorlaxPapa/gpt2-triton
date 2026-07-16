@@ -109,21 +109,20 @@ class Softmax(torch.autograd.Function):
     Launch a grid of size (row, 1, 1) so that each SM processes one softmax row in parallel
     num_stages and num_warps are autotuned
     """
-    original_shape = x.shape
     x_reshaped = x.reshape(-1, x.shape[-1]) #convert into 2d 
     n_rows, n_cols = x_reshaped.shape
 
     #we create our output tensor and allocate BLOCK_SIZE
-    y = torch.empty_like(x_reshaped)
+    y = torch.empty_like(x)
     BLOCK_SIZE = triton.next_power_of_2(n_cols)
 
     #we determine row strides
-    x_stride = x_reshaped.stride(0)
+    x_stride = x.stride(0)
     y_stride = y.stride(0)
 
     #autotune num_stage and num_warps
     softmax_kernel[(n_rows, 1, 1)](
-        x_reshaped,
+        x,
         y,
         x_stride,
         y_stride,
@@ -131,10 +130,7 @@ class Softmax(torch.autograd.Function):
         n_cols,
         BLOCK_SIZE,
     )
-
-    y = y.reshape(original_shape)
     ctx.save_for_backward(y)
-    ctx.original_shape = original_shape
 
     return y
 
@@ -145,25 +141,23 @@ class Softmax(torch.autograd.Function):
     num_stages and num_warps are autotuned
     """
     #get back our y and shape
-    original_shape = ctx.original_shape
     y, = ctx.saved_tensors
 
-    #reshape our y, dy and x
+    #reshape our dy to 2d to get row and cols
     dy_reshaped = dy.reshape(-1, dy.shape[-1]) #convert to 2d
-    y_reshaped = y.reshape(-1, dy.shape[-1])
     n_rows, n_cols = dy_reshaped.shape
 
     #create our output dx tensor and BLOCK SIZE
-    dx = torch.empty_like(y_reshaped)
+    dx = torch.empty_like(y)
     BLOCK_SIZE = triton.next_power_of_2(n_cols)
 
     #get stride for dy and dx
-    y_row_stride = dy_reshaped.stride(0)
+    y_row_stride = dy.stride(0)
     x_row_stride = dx.stride(0)
 
     #num stages and num warps are autotuned
     softmax_bwd[(n_rows, 1, 1)](
-        y_reshaped,
+        y,
         dx,
         dy_reshaped,
         y_row_stride,
@@ -173,7 +167,6 @@ class Softmax(torch.autograd.Function):
         BLOCK_SIZE,
     )
 
-    dx = dx.reshape(original_shape)
 
     return dx
 
