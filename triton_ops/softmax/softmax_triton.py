@@ -46,7 +46,7 @@ def softmax_kernel(
 
   #we find the denominator and softmax
   denominator = tl.sum(numerator, axis=0)
-  softmax_result = numerator/denominator 
+  softmax_result = numerator/denominator
 
   output_row_pointer = output_pointer + row_index * output_stride
   output_row = output_row_pointer + col_offsets
@@ -73,7 +73,7 @@ def softmax_bwd(
 ):
   """
   we compute the partial derivative of S wrt to x_i, which influences every value in each softmax output
-  we then find dLoss/dx_i given the derivative calculated and write this back 
+  we then find dLoss/dx_i given the derivative calculated and write this back
   """
 
   row_start = tl.program_id(0)
@@ -109,59 +109,71 @@ class Softmax(torch.autograd.Function):
     Launch a grid of size (row, 1, 1) so that each SM processes one softmax row in parallel
     num_stages and num_warps are autotuned
     """
-    n_rows, n_cols = x.shape
+    original_shape = x.shape
+    x_reshaped = x.reshape(-1, x.shape[-1]) #convert into 2d 
+    n_rows, n_cols = x_reshaped.shape
 
     #we create our output tensor and allocate BLOCK_SIZE
-    y = torch.empty_like(x)
+    y = torch.empty_like(x_reshaped)
     BLOCK_SIZE = triton.next_power_of_2(n_cols)
 
     #we determine row strides
-    x_stride = x.stride(0)
+    x_stride = x_reshaped.stride(0)
     y_stride = y.stride(0)
 
     #autotune num_stage and num_warps
     softmax_kernel[(n_rows, 1, 1)](
-        x,
+        x_reshaped,
         y,
         x_stride,
         y_stride,
         n_rows,
         n_cols,
         BLOCK_SIZE,
-    ) 
-    ctx.save_for_backward(x, y)
+    )
+
+    y = y.reshape(original_shape)
+    ctx.save_for_backward(y)
+    ctx.original_shape = original_shape
 
     return y
- 
+
   @staticmethod
   def backward(ctx, dy):
     """
     Launch a grid of size (row, 1, 1) so that each SM processes one dx row in parallel
     num_stages and num_warps are autotuned
     """
-    #get back our y
-    x, y = ctx.saved_tensors
-    n_rows, n_cols = dy.shape
+    #get back our y and shape
+    original_shape = ctx.original_shape
+    y, = ctx.saved_tensors
+
+    #reshape our y, dy and x
+    dy_reshaped = dy.reshape(-1, dy.shape[-1]) #convert to 2d
+    y_reshaped = y.reshape(-1, dy.shape[-1])
+    n_rows, n_cols = dy_reshaped.shape
 
     #create our output dx tensor and BLOCK SIZE
-    dx = torch.empty_like(x)
+    dx = torch.empty_like(y_reshaped)
     BLOCK_SIZE = triton.next_power_of_2(n_cols)
 
     #get stride for dy and dx
-    y_row_stride = dy.stride(0)
+    y_row_stride = dy_reshaped.stride(0)
     x_row_stride = dx.stride(0)
 
     #num stages and num warps are autotuned
     softmax_bwd[(n_rows, 1, 1)](
-        y,
+        y_reshaped,
         dx,
-        dy,
+        dy_reshaped,
         y_row_stride,
         x_row_stride,
         n_rows,
         n_cols,
         BLOCK_SIZE,
     )
+
+    dx = dx.reshape(original_shape)
 
     return dx
 
