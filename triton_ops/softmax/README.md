@@ -60,7 +60,7 @@ We(I) benchmarked each implementation on a dedicated CUDA stream to minimize int
 
 # Softmax Explanation
 
-The softtmax function is given by $\text{softmax}(x_i)=\frac{e^{x_i - max}}{\sum_j e^{x_j - max}}$.
+The softmax function is given by $\text{softmax}(x_i)=\frac{e^{x_i - max}}{\sum_j e^{x_j - max}}$.
 
 - Softmax, when implemented naively without optimizations, operates as follows:
     1. For a (M, N) matrix, each row is loaded from HBM into registers/shared memory, the maximum value of that row is computed, and the resulting maximum is written to HBM. MN read and M writes.
