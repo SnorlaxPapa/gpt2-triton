@@ -55,7 +55,7 @@ We(I) benchmarked each implementation on a dedicated CUDA stream to minimize int
 - Triton matches/outperforms Torch's forward softmax function in terms of effective bandwidth for most N values within the constraints of my benchmark.
 - Both implementations plateau around 350 GB/s, suggesting that the kernel has saturated its achievable performance for this particular workload.
 - Rapid increase in GB/s for small sizes of N, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead when N is small.
-- Within the constraints of this benchmark, Triton significantly outperforms Torch for the softmax backward pass. 
+- Within the constraints of this benchmark, Triton significantly outperforms Torch for the softmax backward pass. Honestly I'm not quite sure why I'll take a look at the torch internals when I have time and come back with updates.
 
 <br>
 
