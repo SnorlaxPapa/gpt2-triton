@@ -6,29 +6,14 @@ from softmax_triton import Softmax
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 
-def naive_softmax(x):
-    """Compute row-wise softmax of X using native pytorch
-
-    We subtract the maximum element in order to avoid overflows. Softmax is invariant to
-    this shift.
-    """
-    x_max = x.max(dim=1)[0]
-    z = x - x_max[:, None]
-    numerator = torch.exp(z)
-    denominator = numerator.sum(dim=1)
-    ret = numerator / denominator[:, None]
-
-    return ret
-
-
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         x_names=["N"],
-        x_vals=[128 * i for i in range(1, 70)], #roughly 1300 to 7800
+        x_vals=[128 * i for i in range(1, 65)], 
         line_arg="provider",
-        line_vals=["triton", "naive_softmax", "torch"],
-        line_names=["Triton", "Naive Softmax", "Torch Softmax"],
+        line_vals=["triton", "torch", "compiled"],
+        line_names=["Triton", "Torch", "Compiled Torch"],
         styles=[('blue', '-'), ('green', '-'), ('red', '-')],  
         ylabel="GB/s",  
         plot_name="softmax-performance",  
@@ -42,10 +27,10 @@ def forward_benchmark(M, N, provider):
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         x_names=["N"],
-        x_vals=[128 * i for i in range(1, 65)], #roughly 1300 to 7800
+        x_vals=[128 * i for i in range(1, 65)],
         line_arg="provider",
-        line_vals=["triton", "naive_softmax", "torch"],
-        line_names=["Triton", "Naive Softmax", "Torch Softmax"],
+        line_vals=["triton", "torch", "compiled"],
+        line_names=["Triton", "Torch", "Compiled Torch"],
         styles=[('blue', '-'), ('green', '-'), ('red', '-')],  
         ylabel="GB/s",  
         plot_name="softmax-performance",  
@@ -66,8 +51,9 @@ def benchmark(M, N, provider, dir="forward"):
         fn = lambda: torch.softmax(x, dim=-1)
     if provider == 'triton':
         fn = lambda: Softmax.apply(x)
-    if provider == 'naive_softmax':
-        fn = lambda: naive_softmax(x)
+    if provider == 'compiled':
+        compiled = torch.compile(torch.softmax)
+        fn = lambda: compiled(x, dim=-1)
 
     #we run it 200 times to minimize variance 
     if dir == "forward":
@@ -87,5 +73,5 @@ def benchmark(M, N, provider, dir="forward"):
 
 
 
-forward_benchmark.run(show_plots=False, print_data=True, save_path=".")
+backward_benchmark.run(show_plots=False, print_data=True, save_path=".")
 # power_of_2_benchmark.run(show_plots=False, print_data=True, save_path="./two")

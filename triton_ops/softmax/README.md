@@ -38,7 +38,7 @@ Specifications for benchmark:
 <br>
 
 ### Methodology:
-We(I) benchmarked each implementation on a dedicated CUDA stream to minimize interference from unrelated GPU work. For each benchmark point, the kernel is executed 500 times, and the median runtime is reported to reduce the effects of runtime variability (e.g., GPU frequency scaling, thermal throttling, and scheduling noise). The input matrices of shape (M,N), where M is fixed at 512 and N varies from 128 to 8192 in increments of 128.
+We(I) benchmarked each implementation on a dedicated CUDA stream to minimize interference from unrelated GPU work. For each benchmark point, the kernel is executed 500 times, and the median runtime is reported to reduce the effects of runtime variability (e.g., GPU frequency scaling, thermal throttling, and scheduling noise). The input matrices of shape (M,N), where M is fixed at 1024 for our forward pass and 512 for our backward pass (due to memory constraints), and N varies from 128 to 8192 in increments of 128.
 <br>
 <br>
 
@@ -52,10 +52,9 @@ We(I) benchmarked each implementation on a dedicated CUDA stream to minimize int
 
 ## Observations
 - Both torch and Triton kernels outperform the naive implementation, confirming that kernel fusion is the dominant optimization.
-- Triton matches/outperforms Torch's forward softmax function in terms of effective bandwidth for most N values within the constraints of my benchmark.
+- For N values < 3000 for both our forward and backward pass, Torch's compiled softmax significantly outperforms our custom Triton Kernel. This is likely due to Torch optimizing to batch rows instead of loading one row per program. However, for larger values of N, our custom kernel (and Torch's vanilla CUDA kernel) outperforms the compiled kernel (maybe falling back to a different kernel for large sizes? I need to look at the internals)
 - Both implementations plateau around 350 GB/s, suggesting that the kernel has saturated its achievable performance for this particular workload.
-- Rapid increase in GB/s for small sizes of N, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead when N is small.
-- Within the constraints of this benchmark, Triton significantly outperforms Torch for the softmax backward pass. Honestly I'm not quite sure why I'll take a look at the torch internals when I have time and come back with updates.
+- Rapid increase in GB/s for small sizes of N across all three tests, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead when N is small.
 
 <br>
 

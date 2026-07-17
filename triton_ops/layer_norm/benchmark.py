@@ -4,17 +4,19 @@ import torch.nn as nn
 import triton
 import triton.language as tl
 from triton.runtime import driver
+from torch._functorch import config
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
+config.donated_buffer = False
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         x_names=['N'],
         x_vals=[512 * i for i in range(2, 32)],
         line_arg='provider',
-        line_vals=(['triton', 'torch']),
-        line_names=(['Triton', 'Torch']),
-        styles=[('blue', '-'), ('green', '-')],
+        line_vals=(['triton', 'torch', 'compiled']),
+        line_names=(['Triton', 'Torch', 'Torch Compiled']),
+        styles=[('blue', '-'), ('green', '-'), ('red', '-')],
         ylabel='GB/s',
         plot_name='layer-norm-backward',
         args={'M': 4096, 'dtype': torch.float32, 'mode': 'backward'},
@@ -37,6 +39,10 @@ def bench_layer_norm(M, N, dtype, provider, mode='backward', eps=1e-5, device=DE
 
         if provider == "torch":
             return torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps)  # noqa: F811, E704
+        
+        if provider == "compiled":
+            compiled_fn = torch.compile(torch.nn.functional.layer_norm)
+            return compiled_fn(x, w_shape, weight, bias, eps)
 
     # forward pass
     if mode == 'forward':
