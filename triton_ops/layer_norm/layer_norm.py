@@ -325,4 +325,3 @@ def check_layernorm():
     print("Backward match:", torch.allclose(grad_triton, grad_torch, atol=1e-5))
     print("Max diff:", (grad_triton - grad_torch).abs().max().item())
 
-check_layernorm()
