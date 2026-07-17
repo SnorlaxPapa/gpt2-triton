@@ -36,12 +36,30 @@ def naive_softmax(x):
     )
 )
 def forward_benchmark(M, N, provider):
-    return benchmark(M, N, provider)
+    return benchmark(M, N, provider, dir="forward")
 
 
+@triton.testing.perf_report(
+    triton.testing.Benchmark(
+        x_names=["N"],
+        x_vals=[128 * i for i in range(1, 65)], #roughly 1300 to 7800
+        line_arg="provider",
+        line_vals=["triton", "naive_softmax", "torch"],
+        line_names=["Triton", "Naive Softmax", "Torch Softmax"],
+        styles=[('blue', '-'), ('green', '-'), ('red', '-')],  
+        ylabel="GB/s",  
+        plot_name="softmax-performance",  
+        args={'M': 512}, #the argument that stays constant and the value we provide for it
+    )
+)
+def backward_benchmark(M, N, provider):
+    return benchmark(M, N, provider, dir="backward")
 
-def benchmark(M, N, provider, n_runs=5):
-    x = torch.randn(M, N, device=DEVICE, dtype=torch.float32)
+
+def benchmark(M, N, provider, dir="forward"):
+    quantiles = [0.5, 0.2, 0.8]
+    x = torch.randn(M, N, device=DEVICE, dtype=torch.float32, requires_grad=True)
+    dy = .1 * torch.randn_like(x)
     stream = getattr(torch, DEVICE.type).Stream()
     getattr(torch, DEVICE.type).set_stream(stream)
     if provider == 'torch':
@@ -51,11 +69,22 @@ def benchmark(M, N, provider, n_runs=5):
     if provider == 'naive_softmax':
         fn = lambda: naive_softmax(x)
 
-    #we run it a total of five times to minimize variance 
-    total = [triton.testing.do_bench(fn) for _ in range (n_runs)]
-    ms = sum(total)/len(total)
-    gbps = lambda ms: 2 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
-    return gbps(ms)
+    #we run it 200 times to minimize variance 
+    if dir == "forward":
+        ms, min_ms, max_ms = triton.testing.do_bench(fn, rep=50, quantiles=quantiles)
+        gbps = lambda ms: 2 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
+    
+    if dir == "backward":
+        y_out = fn()
+        backward = lambda: y_out.backward(dy, retain_graph=True)
+        ms, min_ms, max_ms = triton.testing.do_bench(backward, quantiles=quantiles,
+                                                     grad_to_none=[x], rep=500)
+        gbps = lambda ms: 3 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
+        
+    return gbps(ms), gbps(max_ms), gbps(min_ms)
+        
+
+
 
 
 forward_benchmark.run(show_plots=False, print_data=True, save_path=".")

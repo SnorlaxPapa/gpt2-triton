@@ -36,15 +36,26 @@ Specifications for benchmark:
 - Metric: Effective memory bandwidth (GB/s), computed assuming one read and one write per element:
 
 <br>
+
+### Methodology:
+We(I) benchmarked each implementation on a dedicated CUDA stream to minimize interference from unrelated GPU work. For each benchmark point, the kernel is executed 500 times, and the median runtime is reported to reduce the effects of runtime variability (e.g., GPU frequency scaling, thermal throttling, and scheduling noise). The input matrices of shape (M,N), where M is fixed at 512 and N varies from 128 to 8192 in increments of 128.
+<br>
 <br>
 
-![Throughput Results](reference-images/softmax-performance.png)
+### **Forward**
+
+![Forward Results](reference-images/forward_benchmark.png)
+
+### ***Backward***
+
+![Backward Results](reference-images/backward_benchmark.png)
 
 ## Observations
 - Both torch and Triton kernels outperform the naive implementation, confirming that kernel fusion is the dominant optimization.
-- Triton matches/outperforms Torch's native softmax function in terms of effective bandwidth for most N values within the constraints of my benchmark.
+- Triton matches/outperforms Torch's forward softmax function in terms of effective bandwidth for most N values within the constraints of my benchmark.
 - Both implementations plateau around 350 GB/s, suggesting that the kernel has saturated its achievable performance for this particular workload.
-- Rapid increase in GB/s for small sizes of N, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead.
+- Rapid increase in GB/s for small sizes of N, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead when N is small.
+- Within the constraints of this benchmark, Triton significantly outperforms Torch for the softmax backward pass. 
 
 <br>
 
