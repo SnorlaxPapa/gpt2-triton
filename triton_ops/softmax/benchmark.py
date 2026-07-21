@@ -6,6 +6,8 @@ from softmax_triton import Softmax
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 
+#hoist to module level
+compiled = torch.compile(torch.softmax)
 
 @triton.testing.perf_report(
     triton.testing.Benchmark(
@@ -52,7 +54,6 @@ def benchmark(M, N, provider, dir="forward"):
     if provider == 'triton':
         fn = lambda: Softmax.apply(x)
     if provider == 'compiled':
-        compiled = torch.compile(torch.softmax)
         fn = lambda: compiled(x, dim=-1)
 
     #we run it 200 times to minimize variance 

@@ -9,6 +9,9 @@ from torch._functorch import config
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
 config.donated_buffer = False
 
+#hoisting to module level so we dont recompile each time
+compiled_fn = torch.compile(torch.nn.functional.layer_norm)
+
 @triton.testing.perf_report(
     triton.testing.Benchmark(
         x_names=['N'],
@@ -41,7 +44,6 @@ def bench_layer_norm(M, N, dtype, provider, mode='backward', eps=1e-5, device=DE
             return torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps)  # noqa: F811, E704
         
         if provider == "compiled":
-            compiled_fn = torch.compile(torch.nn.functional.layer_norm)
             return compiled_fn(x, w_shape, weight, bias, eps)
 
     # forward pass

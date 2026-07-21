@@ -31,8 +31,8 @@ Specifications for benchmark:
 - GPU: NVIDIA RTX 4080 GPU (16GB, Ada Lovelace architecture)
 - Triton 3.7.0
 - PyTorch 2.12.0
-- Input shape: (M, N),  $M = 1024, N \in [128, 8960]$
-- Benchmarking: Each configuration was run 5 times and the average execution time was reported.
+- Input shape: (M, N),  $M = 512, N \in [128, 8192] in steps of 128$
+- Benchmarking: Each configuration was run 50 times and the 20th percentile, median and 80th percentile times were reported.
 - Metric: Effective memory bandwidth (GB/s), computed assuming one read and one write per element:
 
 <br>
