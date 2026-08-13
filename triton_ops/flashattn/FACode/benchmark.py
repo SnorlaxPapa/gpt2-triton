@@ -1,4 +1,4 @@
-from flash import Attention
+from triton_ops.flashattn.FACode.flash import Attention
 import torch
 import torch.nn as nn
 import triton

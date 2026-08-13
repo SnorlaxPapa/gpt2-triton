@@ -1,9 +1,6 @@
-import torch
 import torch.nn as nn
 import triton
 import triton.language as tl
-from triton.runtime import driver
-
 
 configs = [
     triton.Config({'BLOCK_SIZE_M': BM, 'BLOCK_SIZE_N': BN}, num_stages=s, num_warps=w) \
@@ -12,11 +9,6 @@ configs = [
     for s in [2, 3, 4, 5] \
     for w in [2, 4, 8]\
 ]
-
-#for testing
-# configs = [
-#         triton.Config(dict(BLOCK_SIZE_M=128, BLOCK_SIZE_N=64), num_stages=2, num_warps=4),
-# ]
 
 @triton.jit
 def _forward_inner_kv(
@@ -220,150 +212,3 @@ def _forward_q(
 
   tl.store(M_ptr, m_i, mask=q_rows<SEQ_LEN)
   tl.store(o_ptr, O_block, mask=mask)
-
-
-
-@triton.autotune(
-    configs=triton.Config([
-      {'BLOCK_SIZE_M': BM}, num_warps = w
-      for BM in [32, 64, 128, 256] for w in [2, 4, 8]]
-    ), keys=["N", "C"])
-@triton.jit
-def _preprocess(
-    out,
-    dO,
-    DD,  
-    N,
-    C: tl.constexpr,
-    BLOCK_SIZE_M: tl.constexpr,
-):
-  #find start of current block grid (BLOCK_SIZE_M, BATCH, HEAD) -> each head got own N, N split into BLOCK_SIZE_M
-  group_index = tl.program_id(0)
-  batch_head_index = tl.program_id(1)
-
-  batch_head_stride = N * C
-  start_O = (
-              out + batch_head_index * batch_head_stride + 
-              group_index * BLOCK_SIZE_M * C
-            )  
-  start_dO = (
-              dO + batch_head_index * batch_head_stride + 
-              group_index * BLOCK_SIZE_M * C
-             )
-
-  #capture our block offsets
-  O_offsets = tl.arange(0, BLOCK_SIZE_M)[:, None] * C + tl.arange(0, C)[None, :]
-
-  rows = group_index * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-  mask = rows[:, None] < N
-
-  #load
-  dOut = tl.load(start_dO + O_offsets, mask=mask, other=0.0)
-  O = tl.load(start_O + O_offsets, mask=mask, other=0.0)
-
-  dd = tl.sum(dOut * O, axis=1)
-
-  #write back to DD
-  dd_idx = DD + batch_head_index * N + rows
-  tl.store(dd_idx, dd, mask=rows < N)
-
-
-
-  
-
-class Attention(torch.autograd.Function):
-
-  @staticmethod
-  def forward(ctx, q, k, v, sqrt_dk, causal):
-    """
-    input shape (B, num_head, seq_len, head_dim)
-    launch cdiv(seq_len, BLOCK_SIZE_M) * num_head programs to compute Qi * KjVj
-    output new P@V which has the same shape as (B, num_head, seq_len, head_dim)
-    """
-    #get our necessary dimensions and check
-    HEAD_DIM_Q, HEAD_DIM_K, HEAD_DIM_V = q.shape[-1], k.shape[-1], v.shape[-1]
-    assert HEAD_DIM_Q == HEAD_DIM_K and HEAD_DIM_V == HEAD_DIM_K
-
-    B, NUM_HEAD, SEQ_LEN, HEAD_DIM = q.shape
-
-    #define our grid (query_group, num_heads)
-    grid = lambda meta: (
-                          triton.cdiv(SEQ_LEN, meta["BLOCK_SIZE_M"]),
-                          B * NUM_HEAD,
-                          1
-                        )
-
-    out = torch.empty_like(q)
-    M = torch.empty((q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32)
-    #Determine the stage needed. 1 for non-causal, 3 for causal
-    stage = 3 if causal else 1
-
-    #launch our kernel
-    _forward_q[grid](
-        q,
-        k,
-        v,
-        out,
-        M,
-        sqrt_dk,
-        SEQ_LEN,
-        HEAD_DIM_Q,
-        NUM_HEAD,
-        stage=stage,
-    )
-
-  
-    ctx.save_for_backward(q, k, v, out, M)
-    ctx.sqrt_dk = sqrt_dk
-    ctx.HEAD_DIM = HEAD_DIM_Q
-    ctx.causal = causal
-
-    return out
-
-  @staticmethod
-  def backward(ctx, dO):
-    """
-    input dy (B, H, N, C)
-    flow: initialize my dd vector size (B, H, N, ) one value per row 
-    launch a preprocessing grid with BLOCK_SIZE_M to compute dd
-    """
-    B, H, N, C = dO.shape
-    assert C == ctx.HEAD_DIM
-
-    q, k, v, out, M = ctx.saved_tensors
-    sqrt_dk = ctx.sqrt_dk
-    causal = ctx.causal
-  
-    DD = torch.zeros((B, H, N))
-    grid = lambda meta: (meta["BLOCK_SIZE_M"], B*H, 1)
-
-    _preprocess[grid](
-      out,
-      dO,
-      DD,   
-      N,
-      C,
-    )
-
-
-
-
-
-def check_attention():
-  q = torch.randn((4, 8, 31, 16), device="cuda", dtype=torch.float32, requires_grad=True) #B, H, SEQ, DIM
-  k = torch.randn((4, 8, 31, 16), device="cuda", dtype=torch.float32, requires_grad=True) #B, H, SEQ, DIM
-  v = torch.randn((4, 8, 31, 16), device="cuda", dtype=torch.float32, requires_grad=True) #B, H, SEQ, DIM
-  scale = q.shape[-1] ** -0.5 
-
-  y_torch = nn.functional.scaled_dot_product_attention(
-      q,
-      k,
-      v,
-      is_causal=False,
-      scale=scale,
-  )
-  y_triton = Attention.apply(q, k, v, scale, False)
-
-  torch.allclose(y_torch, y_triton)
-  print("max difference:", (y_torch - y_triton).abs().max().item())
-
