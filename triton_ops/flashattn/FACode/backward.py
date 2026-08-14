@@ -78,10 +78,10 @@ def _backward_dq_inner(
         num_warps = w,
         num_stages = s,
       )
-      for BM in [64, 128]
+      for BM in [64, 128, 256]
       for w in [4, 8]
-      for BN in [32, 64, 128]
-      for s in [2, 3, 4]
+      for BN in [32, 64, 128, 256]
+      for s in [4, 5, 6, 7]
       if BM % BN == 0
     ], key=["N", "C", "causal"])
 @triton.jit
@@ -303,10 +303,10 @@ def _backward_dk_dv_inner(
         num_warps = w,
         num_stages = s,
       )
-      for BM in [64, 128]
+      for BM in [64, 128, 256]
       for w in [4, 8]
-      for BN in [32, 64, 128]
-      for s in [2, 3, 4]
+      for BN in [32, 64, 128, 256]
+      for s in [4, 5, 6, 7]
       if BM % BN == 0
     ], key=["N", "C", "causal"])
 @triton.jit
@@ -448,8 +448,6 @@ def _backward_dkdv_outer(
 
   tl.store(dk_idx, dk_tile, mask=row_mask)
   tl.store(dv_idx, dv_tile, mask=row_mask)
-
-
 
 
 

@@ -22,7 +22,7 @@ compiled_fn = torch.compile(torch.nn.functional.layer_norm)
         styles=[('blue', '-'), ('green', '-'), ('red', '-')],
         ylabel='GB/s',
         plot_name='layer-norm-backward',
-        args={'M': 4096, 'dtype': torch.float32, 'mode': 'backward'},
+        args={'M': 4096, 'dtype': torch.float16, 'mode': 'backward'},
     ))
 def bench_layer_norm(M, N, dtype, provider, mode='backward', eps=1e-5, device=DEVICE):
     # create data

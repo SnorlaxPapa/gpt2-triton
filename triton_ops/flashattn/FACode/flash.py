@@ -70,7 +70,7 @@ class Attention(torch.autograd.Function):
     sqrt_dk = ctx.sqrt_dk
     causal = ctx.causal
   
-    D = torch.zeros((B, H, N), device=dO.device, dtype=torch.float32)
+    D = torch.empty((B, H, N), device=dO.device, dtype=torch.float32)
     grid = lambda meta: ((N+meta["BLOCK_SIZE_M"] - 1)//meta["BLOCK_SIZE_M"], B*H, 1)
 
     _preprocess[grid](
@@ -81,9 +81,9 @@ class Attention(torch.autograd.Function):
       C,
     )
 
-    dq = torch.zeros_like(q)
-    dv = torch.zeros_like(v)
-    dk = torch.zeros_like(k)
+    dq = torch.empty_like(q)
+    dv = torch.empty_like(v)
+    dk = torch.empty_like(k)
 
     grid_dkdv = lambda meta: ((N+meta["BLOCK_SIZE_M"] - 1)//meta["BLOCK_SIZE_M"], B*H, 1)
     _backward_dkdv_outer[grid_dkdv](
@@ -163,13 +163,11 @@ def check_attention():
 
   print("Backward match:", torch.allclose(torch_dq, triton_dq, atol=1e-2, rtol=1e-2))
   print("dq max difference:", (torch_dq - triton_dq).abs().max().item())
-  print("Relative diff: ", (torch_dq - triton_dq).abs().max() / torch_dk.abs().max())
+  print("Relative diff: ", ((torch_dq - triton_dq).abs().max() / torch_dq.abs().max()).item())
   print("Backward match:", torch.allclose(torch_dk, triton_dk, atol=1e-2, rtol=1e-2))
   print("dk max difference:", (torch_dk - triton_dk).abs().max().item())
-  print("Relative diff: ", (torch_dk - triton_dk).abs().max() / torch_dk.abs().max())
+  print("Relative diff: ", ((torch_dk - triton_dk).abs().max() / torch_dk.abs().max()).item())
   print("Backward match:", torch.allclose(torch_dv, triton_dv, atol=1e-2, rtol=1e-2))
   print("dv max difference:", (torch_dv - triton_dv).abs().max().item())
-  print("Relative diff: ", (torch_dv - triton_dv).abs().max() / torch_dk.abs().max())
+  print("Relative diff: ", ((torch_dv - triton_dv).abs().max() / torch_dv.abs().max()).item())
 
-
-check_attention()
