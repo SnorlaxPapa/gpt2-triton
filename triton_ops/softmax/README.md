@@ -60,7 +60,7 @@ $$\text{softmax}(x_i)=\frac{e^{x_i - max}}{\sum_j e^{x_j - max}}$$.
 
 - Softmax, when implemented naively without optimizations, operates as follows:
     1. For a (M, N) matrix, each row is loaded from HBM into registers/shared memory, the maximum value of that row is computed, and the resulting maximum is written to HBM. MN read and M writes.
-    2. To calculate $x - x_max$, we read the `(M, N)` x matrix and `(M, )` $x_max$ matrix. We then write back a `(M, N)` matrix. We subtract $x_max$ to prevent floating-point overflow. So we read `MN + M` elements and write back MN elements.
+    2. To calculate $x - x_{max}$, we read the `(M, N)` x matrix and `(M, )` $x_max$ matrix. We then write back a `(M, N)` matrix. We subtract $x_max$ to prevent floating-point overflow. So we read `MN + M` elements and write back MN elements.
     3. Then, we need to exponentiate x to find the numerator in the softmax function. This is another MN read AND a MN write. 
     4. Then we need to load the new numerator `(M, N)` matrix again, and sum each row to find the normalization factor/denominator, producing a `(M, )` vector. This is a `MN` read and a `M` write as we write back the normalization factor back to the HBM.
     5. Finally, we need to load both our numerators (M, N) and denominators `(M, )` from the HBM to SRAM. We calculate our softmax and write back a `(M, N)` array. This is a `MN + M read` from the HBM and a `MN` write back to the HBM.
