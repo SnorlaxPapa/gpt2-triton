@@ -3,16 +3,17 @@
 Custom forward and backward Triton kernels for Softmax, LayerNorm, and FlashAttention-2, benchmarked against PyTorch on an NVIDIA RTX 4080.
 
 # Project Overview
-This repository contains custom Triton implementations of Softmax, Layer Normalization, and FlashAttention-2, written to explore GPU kernel optimization from first principles. Each kernel includes forward and backward passes,  and performance benchmarks against eaer and compiled PyTorch implementations. Each kernel includes forward and backward passes and was numerically validated against its PyTorch equivalent. The ultimate goal was to implement these operations to gain a deeper understanding of Triton and GPU kernel optimization.
+
+This repository contains custom Triton implementations of Softmax, Layer Normalization, and FlashAttention-2, developed from first principles to explore GPU kernel optimization. Each kernel includes forward and backward passes, was numerically validated against its PyTorch equivalent, and was benchmarked against eager and compiled PyTorch implementations. The project’s primary goal was to develop a deeper understanding of Triton and GPU kernel optimization.
 
 # Implemented Kernels and Optimization Highlights
 
 In this project, I implemented the following kernels:
 - **Softmax**:
     - Fuses row-wise maximum, exponentiation, normalization, and output storage into a single kernel, avoiding intermediate global-memory writes. A detailed walkthrough of the forward and backward passes, as well as the benchmarked results can be found [here](triton_ops/softmax/README.md).
-- **Layer normalization**:
+- **LayerNorm**:
     - Fuses the input-gradient computation and uses grouped partial-gradient buffers with atomic synchronization, followed by a second-stage reduction for the weight and bias gradients. Similarly, a detailed walkthrough of the algorithm and benchmark results can be found [here](triton_ops/layer_norm/README.md).
-- **Flash Attention**:
+- **FlashAttention-2**:
     - Uses tiled online softmax to avoid materializing the quadratic attention matrix. The backward pass reconstructs attention tiles on-chip and computes `dQ`, `dK`, and `dV` in one main traversal. For a detailed explanation of the code and results, please click [here](triton_ops/flashattn/README.md).
 - **Autotuning:** Uses Triton autotuning to select block sizes, warp counts, and pipeline stages for different input configurations.
 
