@@ -17,8 +17,8 @@ A brief explanation of the forward and backward pass is provided below. For a co
 A standard attention algorithm goes as follows
 
 $$
-S = \frac{QK^T}{\sqrt{d_k}} \\
-P = softmax(S) \\
+S = \frac{QK^T}{\sqrt{d_k}}\\
+P = softmax(S)\\
 O = P \cdot V
 $$
 
@@ -39,7 +39,6 @@ dV = P^T \cdot dO \\
 dP = dO \cdot V^T \\
 dS = P \odot (dP - D), \\
 \\ \text{ where } D_i = \sum_d O_id \cdot dO_id
-
 $$
 
 - Intuition behind D (delta): In a probability vector, the individual probabilities are tightly coupled with each other. If one probability goes up, another probability must go down. When we get a gradient dP, it is essentially an indication of how much each probability needs to change. However, if dP is something like [2, 3, 4], it cannot be that all our probabilities increase. Instead, we find a 'weighted baseline gradient' in the form of D and find $dP - D$. Elements whose upstream gradient lies above the weighted baseline receive a positive logit gradient, while those below it receive a negative one.
