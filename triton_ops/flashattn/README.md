@@ -64,7 +64,7 @@ Specifications for benchmark:
 - GPU: NVIDIA RTX 4080 GPU (16GB, Ada Lovelace architecture)
 - Triton 3.7.0
 - PyTorch 2.12.0
-- Input shape: (BATCH_SIZE, HEADS, SEQ_LEN, HEAD_DIM)  `BATCH SIZE = 2, HEADS = 4, SEQ LEN \in [1024, 7680], HEAD DIM=64, causal=False`
+- Input shape: (BATCH_SIZE, HEADS, SEQ_LEN, HEAD_DIM)  `BATCH SIZE = 2, HEADS = 4, SEQ LEN in [1024, 7680], HEAD DIM=64, causal=False`
 - Benchmarking: Each configuration was run repeatedly within a 500ms window and the 20th percentile, median and 80th percentile times were reported.
 - Metric: TFLOPS
 - Attention Backend: SDPBackend.FLASH_ATTENTION
