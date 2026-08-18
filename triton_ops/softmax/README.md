@@ -1,44 +1,39 @@
 # Introduction
 
-A naive softmax implementation without memory optimization and operation fusion performs multiple passes over global memory, producing intermediate tensors after each operation. This results in approximately 8MN+4M element transfers between HBM and on-chip memory, making the kernel memory-bound. The Triton implementation fuses these operations into a single kernel, reducing the required global memory traffic to one read and one write per element. For a detailed explanation of the naive softmax explanation, see the [Softmax Explanation](#softmax-explanation).
+A naive softmax implementation without memory optimization and operation fusion performs multiple passes over global memory, producing intermediate tensors after each operation. This results in approximately 8MN+4M element transfers between HBM and on-chip memory, making the kernel memory-bound. The Triton implementation fuses these operations into a single kernel, reducing the required global memory traffic to one read and one write per element.
 
 <br>
 
 # Fused softmax forward pass
 
 Instead of reading and writing the (M, N) matrix multiple times, we aim to process all five steps in one read, and write the softmax output in one write.
-To do so, we launch a kernel with grid (num_rows, 1, 1) with num_rows number of programs. Each program is responsible for processing one row, and the GPU scheduler allocates how many programs occupies one SM.
-Each program loads one row into on-chip memory, computes the complete softmax, and writes the result back to global memory.
+We can do so by splitting our sequence into (BLOCK_SIZE_M, DIM) tiles, where each tile consists of BLOCK_SIZE_M number of rows. This is possible because each row is independent from another, and we can calculate our softmax for each tile. 
 
-
-### Some considerations
-- Since our kernel is reductive (.sum, .max), it is much faster if we use a power of 2 as triton is optimized for these sizes and loads memory blocks in powers of 2 (64, 128, 256 ...). This means when we want to load our row, we need to load it with a BLOCK_SIZE equivalent to the next largest power of 2. So a row with 700 columns would be loaded with `BLOCK_SIZE = 1024`. We use a mask to ensure these values do not affect our calculations.
-- `num_warps` determines how many warps we use for our program. More warps hide our latency as we can swap between warps on a memory load. But this also increases register pressure per program, leading to less programs per SM. So we autotune this value. 
 
 <br>
 
 # Fused softmax backward pass 
 
-Similar to our forward pass, we can launch a (num_rows, 1, 1) grid of programs to process our rows. For each row, we simply calculate the partial derivative of the loss with respect to each element in the row and write it to the corresponding row in our dx matrix. To see the derivation, see the [Backward Derivation](#backward-derivation)
+Similar to our forward pass, we can split our tiles into BLOCK_SIZE_M sized tiles where we can calculate its derivative. To see the derivation, see the [Backward Derivation](#backward-derivation)
 
 <br>
 
 # Bench Marking
 
-The moment of Truth!
 Specifications for benchmark:
 - CUDA: 13.2
 - GPU: NVIDIA RTX 4080 GPU (16GB, Ada Lovelace architecture)
 - Triton 3.7.0
 - PyTorch 2.12.0
 - Input shape: (M, N),  $M = 512, N \in [128, 8192] in steps of 128$
-- Benchmarking: Each configuration was run 50 times and the 20th percentile, median and 80th percentile times were reported.
-- Metric: Effective memory bandwidth (GB/s), computed assuming one read and one write per element:
+- Benchmarking: Each configuration was run within a 500ms window and the 20th percentile, median and 80th percentile times were reported.
+- Metric: Effective memory bandwidth (GB/s), computed assuming one read and one write per element for forward and two reads and one write for backward.
+- Dtype: FP16
 
 <br>
 
 ### Methodology:
-We(I) benchmarked each implementation on a dedicated CUDA stream to minimize interference from unrelated GPU work. For each benchmark point, the kernel is executed 500 times, and the median runtime is reported to reduce the effects of runtime variability (e.g., GPU frequency scaling, thermal throttling, and scheduling noise). The input matrices of shape (M,N), where M is fixed at 1024 for our forward pass and 512 for our backward pass (due to memory constraints), and N varies from 128 to 8192 in increments of 128.
+For each benchmark point, the kernel is executed as many times as possible within a 500ms window, and the median runtime is reported to reduce the effects of runtime variability (e.g., GPU frequency scaling, thermal throttling, and scheduling noise). The input matrices of shape (M,N), where M is fixed at 512 for our forward and backward pass, and N varies from 128 to 8192 in increments of 128. 
 <br>
 <br>
 
@@ -51,10 +46,9 @@ We(I) benchmarked each implementation on a dedicated CUDA stream to minimize int
 ![Backward Results](reference-images/backward_benchmark.png)
 
 ## Observations
-- Both torch and Triton kernels outperform the naive implementation, confirming that kernel fusion is the dominant optimization.
-- For N values < 3000 for both our forward and backward pass, Torch's compiled softmax significantly outperforms our custom Triton Kernel. This is likely due to Torch optimizing to batch rows instead of loading one row per program. However, for larger values of N, our custom kernel (and Torch's vanilla CUDA kernel) outperforms the compiled kernel (maybe falling back to a different kernel for large sizes? I need to look at the internals)
-- Both implementations plateau around 350 GB/s, suggesting that the kernel has saturated its achievable performance for this particular workload.
-- Rapid increase in GB/s for small sizes of N across all three tests, likely attributed to under-utilization, scheduling costs and overall kernel launch overhead when N is small.
+- The custom Triton kernel outperforms the compiled Torch and native Torch kernels for FP16 inputs for its forward pass, and matches the compiled throughput for smaller sequence lengths in the backward pass. 
+- The custom Triton kernel approaches an effective throughput of about 350 GB/s for both forward and backward passes. This indicates that the current implementation has reached a stable performance bottleneck. Further profiling would be required to determine whether this is primarily memory bandwidth, occupancy, register pressure, or reduction overhead.
+- Based on autotuning results, the optimal `BLOCK_SIZE_M` fluctuates between 1 and 2. This is a reasonable result as rows are completely independent in the softmax. This means that there is no data reuse and increasing BLOCK_SIZE_M simply increases the size of the `(BLOCK_SIZE_M * BLOCK_SIZE_N)` tile loaded with no increase in arithmetic intensity. This could lead to decreased occupancy and heightened register pressure for larger values of BLOCK_SIZE_M. A block size of 2 may occasionally benefit parallelism without significant detriment to occupancy and register pressure. 
 
 <br>
 

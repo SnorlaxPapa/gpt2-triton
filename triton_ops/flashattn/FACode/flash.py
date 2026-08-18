@@ -5,7 +5,7 @@ import triton.language as tl
 from triton.runtime import driver
   
 from forward import _forward_q
-from backward import _preprocess, _backward_dq_outer, _backward_dkdv_outer
+from backward import _preprocess, _backward_outer
 
 class Attention(torch.autograd.Function):
 
@@ -86,7 +86,7 @@ class Attention(torch.autograd.Function):
     dk = torch.empty_like(k)
 
     grid_dkdv = lambda meta: ((N+meta["BLOCK_SIZE_M"] - 1)//meta["BLOCK_SIZE_M"], B*H, 1)
-    _backward_dkdv_outer[grid_dkdv](
+    _backward_outer[grid_dkdv](
       q=q,
       k=k,
       v=v,
@@ -96,27 +96,12 @@ class Attention(torch.autograd.Function):
       dq=dq,
       C=C,
       sqrt_dk=sqrt_dk,
-      out=out,
       dO=dO,
       M=M,
       D=D,
       causal=causal,
     )
 
-    grid_q = lambda meta: ((N+meta["BLOCK_SIZE_M2"]-1)//meta["BLOCK_SIZE_M2"], B*H, 1)
-    _backward_dq_outer[grid_q](
-      q=q,
-      k=k,
-      v=v,
-      N=N,
-      dq=dq,
-      C=C,
-      sqrt_dk=sqrt_dk,
-      dO=dO,
-      M=M,
-      D=D,
-      causal=causal,
-    )
 
     return dq, dk, dv, None, None
     

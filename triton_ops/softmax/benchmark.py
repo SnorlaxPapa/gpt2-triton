@@ -18,8 +18,8 @@ compiled = torch.compile(torch.softmax)
         line_names=["Triton", "Torch", "Compiled Torch"],
         styles=[('blue', '-'), ('green', '-'), ('red', '-')],  
         ylabel="GB/s",  
-        plot_name="softmax-performance",  
-        args={'M': 1024}, #the argument that stays constant and the value we provide for it
+        plot_name="forward-softmax-performance",  
+        args={'M': 512}, #the argument that stays constant and the value we provide for it
     )
 )
 def forward_benchmark(M, N, provider):
@@ -35,8 +35,8 @@ def forward_benchmark(M, N, provider):
         line_names=["Triton", "Torch", "Compiled Torch"],
         styles=[('blue', '-'), ('green', '-'), ('red', '-')],  
         ylabel="GB/s",  
-        plot_name="softmax-performance",  
-        args={'M': 512}, #the argument that stays constant and the value we provide for it
+        plot_name="backward-softmax-performance",  
+        args={'M': 512},
     )
 )
 def backward_benchmark(M, N, provider):
@@ -45,7 +45,7 @@ def backward_benchmark(M, N, provider):
 
 def benchmark(M, N, provider, dir="forward"):
     quantiles = [0.5, 0.2, 0.8]
-    x = torch.randn(M, N, device=DEVICE, dtype=torch.float32, requires_grad=True)
+    x = torch.randn(M, N, device=DEVICE, dtype=torch.float16, requires_grad=True)
     dy = .1 * torch.randn_like(x)
     stream = getattr(torch, DEVICE.type).Stream()
     getattr(torch, DEVICE.type).set_stream(stream)
@@ -56,9 +56,9 @@ def benchmark(M, N, provider, dir="forward"):
     if provider == 'compiled':
         fn = lambda: compiled(x, dim=-1)
 
-    #we run it 200 times to minimize variance 
+    #we run it within 500ms window to minimize variance 
     if dir == "forward":
-        ms, min_ms, max_ms = triton.testing.do_bench(fn, rep=50, quantiles=quantiles)
+        ms, min_ms, max_ms = triton.testing.do_bench(fn, rep=500, quantiles=quantiles)
         gbps = lambda ms: 2 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
     
     if dir == "backward":
@@ -74,5 +74,5 @@ def benchmark(M, N, provider, dir="forward"):
 
 
 
-backward_benchmark.run(show_plots=False, print_data=True, save_path=".")
+forward_benchmark.run(show_plots=False, print_data=True, save_path=".")
 # power_of_2_benchmark.run(show_plots=False, print_data=True, save_path="./two")

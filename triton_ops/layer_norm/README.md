@@ -2,7 +2,7 @@
 
 ## An introduction
 
-Much like our softmax layer, a naive implementation of layer normalization would take too many read and writes. To recap, the formula to normalize one row is
+Much like our softmax layer, a naive implementation of layer normalization would take too many reads and writes. To recap, the formula to normalize one row is
 
 $$
 \hat{x}_i = \frac{x_i - \mu}{\sqrt{\sigma^2 + \epsilon}} \text{ where }\sigma^2 \text{ is variance and }\epsilon \text{ is added to prevent division by 0}
@@ -23,7 +23,6 @@ So, we simply convert our input tensor into a 2D tensor and launch n_row program
 
 ## Fused layer norm backward pass
 
-The backward pass is more interesting. 
 
 $$
 \nabla_w = \sum_{rows} \nabla_y \odot \hat{x}
@@ -61,8 +60,9 @@ Specifications for benchmark:
 - Triton 3.7.0
 - PyTorch 2.12.0
 - Input shape: (M, N),  $M = 4096, N \in [512, 15872]$
-- Benchmarking: Each configuration was run 500 times and the 20th percentile, median and 80th percentile times were reported.
+- Benchmarking: Each configuration was run repeatedly within a 500ms window and the 20th percentile, median and 80th percentile times were reported.
 - Metric: Effective memory bandwidth (GB/s), computed assuming one read and one write per element:
+- Dtype: FP16
 
 ### **Forward pass**
 
@@ -72,6 +72,7 @@ Specifications for benchmark:
 
 - The custom Triton implementation matches the performance of compiled Torch within the dimensions of the benchmark, with an increasing divergence in performance as context size increases.
 - Triton's throughput saturates at about 370 GB/s, suggesting that the kernel has saturated its achievable performance for this particular workload.
+- Much like our softmax, layer normalization operations are completely independent for each row. Following the explanation detailed in softmax, it would be rational to set our `BLOCK_SIZE_M` to 1. In this case, we skip the autotuning and directly allocate 1 row per program.
 
 
 ### **Backward pass**
