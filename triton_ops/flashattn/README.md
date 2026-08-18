@@ -29,7 +29,9 @@ $$
 $$l_i = l_{i-1} \cdot e^{m_{i-1} - m_i} + \sum_j e^{s_j - m_i} $$
 - Therefore, for a given Q tile, we can calculate its softmax by loading all relevant KV tiles and utilizing online softmax. 
 - Once the softmax is calculated, we can simply calculate $O$ and accumulate it. Similarly, we have to scale down $O$ whenever there is a new max.
-$$ O_i = O_{i-1} \cdot e^{m_{i-1} - m_i} + P_iV_i $$
+
+$$O_i = O_{i-1} \cdot e^{m_{i-1} - m_i} + P_iV_i$$
+
 - Note: For FA2, the tile probabilities are kept unnormalized during accumulation and normalization by $l_i$ is deferred to the end of the loop to reduce redundant calculations.
 
 ## Backward pass
