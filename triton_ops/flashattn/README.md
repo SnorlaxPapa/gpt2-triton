@@ -26,7 +26,9 @@ $$
 
 - When we tile our $Q$ into `(BLOCK_SIZE_M, C)` and $K^T$ into `(C, BLOCK_SIZE_N)`, the resultant attention matrix is `(BLOCK_SIZE_M, BLOCK_SIZE_N)`. The core issue with this is we do not have the entire row due to the tiling of $K^T$. Therefore, we cannot directly calculate our softmax as it requires knowing the maximum of the row and the sum of the exponentiated elements of the row. To do this, we utilize online softmax. 
 - In online softmax, we maintain a running maximum $m_i$, and a running normalization term $l_i$, representing the sum of exponentiated scores processed so far. Whenever we encounter a new max, we simply scale down $l_{i-1}$ by $max_{i-1} - max_i$ prior to adding the new exponentiated tile. 
+
 $$l_i = l_{i-1} \cdot e^{m_{i-1} - m_i} + \sum_j e^{s_j - m_i} $$
+
 - Therefore, for a given Q tile, we can calculate its softmax by loading all relevant KV tiles and utilizing online softmax. 
 - Once the softmax is calculated, we can simply calculate $O$ and accumulate it. Similarly, we have to scale down $O$ whenever there is a new max.
 
@@ -73,7 +75,8 @@ Specifications for benchmark:
 - Dtype: FP16
 
 </br>
-*TFLOP/s is used because attention contains several large tensor-core matrix multiplications and is substantially more compute-intensive than standalone softmax or layer normalization. Throughput is computed using the algorithmic operation counts $4BHN^2d$ for the forward pass and $10BHN^2d$ for the backward pass, divided by runtime.
+
+Note: TFLOP/s is used because attention contains several large tensor-core matrix multiplications and is substantially more compute-intensive than standalone softmax or layer normalization. Throughput is computed using the algorithmic operation counts $4BHN^2d$ for the forward pass and $10BHN^2d$ for the backward pass, divided by runtime.
 
 
 ### **Forward**
